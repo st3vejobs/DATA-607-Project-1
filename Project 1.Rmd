@@ -1,0 +1,116 @@
+---
+title: "Project 1"
+author: "Shane Hylton"
+date: "9/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+```
+
+## Reading the Chess Data
+
+First, I isolated the rows featuring a name by following a pattern of skipping the rows that are not needed for R to evaluate, such as the first five rows and all rows between names. 
+I used the same approach to collect all rows containing a player rating to better isolate patterns. Because the indexes remain the same for both, the data for a given player is still linked by index.
+
+```{r}
+link <- "https://raw.githubusercontent.com/st3vejobs/DATA-607-Project-1/main/tournamentinfo.txt"
+library(stringr)
+data <- readLines(link)
+data <- data[-c(1,2,3,4)]
+#data <- read.table(file = url(link), header = TRUE)
+namerows <- unlist(data)
+namerows <- namerows[seq(1,length(namerows),by = 3)]
+rtgrows <- unlist(data)
+rtgrows <- rtgrows[seq(2, length(rtgrows), by = 3)]
+```
+
+## Final Data Frame
+
+My next move is to take the individual data and compile it into a new data frame.
+I do this column by column, using only one for loop. I find it awfully challenging to communicate the proper regexps. It requires a lot of trial and error for me. R for Data Science is a helpful text, but it still takes me a long time to figure out each  line for a regexp. This project is a great way to combine a large number of the regex commands into one assignment.
+
+As practice, I added two plots, one for strength of schedule colored by state, and another for player rating vs. opponent average rating. 
+```{r}
+
+names <- str_extract(namerows, '[A-Z].{1,30}')
+names <- c(str_trim(str_extract(names, '.+\\s{2,}')))
+Final <- data.frame(names)
+colnames(Final) <- c("Name")
+
+initials <- str_extract_all(names, '(^[A-Z])|(\\s)([A-Z])')
+first_initial <- str_extract(names, '^[A-Z]')
+Final$Initial <- c(first_initial)
+states <- str_extract(rtgrows, '[A-Z]{2}')
+Final$State <- states
+
+pts <- c(as.numeric(str_extract(namerows, '\\d+\\.\\d')))
+Final$Points <- pts
+
+rtgraw <- str_extract(rtgrows, 'R:.{7,}-')
+rtg <- c(as.numeric(str_extract(rtgraw, '\\d{1,5}')))
+Final$Pre_Match_Rating <- rtg
+opp_idx <- str_extract_all(namerows, '[A-Z]\\s{2,}\\d+')
+opp_idx <- c(str_extract_all(opp_idx, '\\d+'))
+
+avgrtg <- c()
+for(i in c(1:length(opp_idx))){
+  avgrtg[i] <- round(mean(rtg[as.numeric(opp_idx[[i]])]),0)
+}
+
+Final$Average_Opponent_Rating <- avgrtg
+
+write_csv(Final, '/Users/shanehylton/Desktop/quickview_chess.csv')
+
+```
+
+```{r}
+
+library(ggplot2)
+
+ggplot(Final, aes(x = Name, y = Average_Opponent_Rating, color = State))+
+  geom_bar(stat = "identity", position= position_dodge())+
+  ggtitle('Strength of Schedule')+
+  scale_x_discrete(labels = c(Final$Initial), guide = guide_axis(n.dodge=5))+
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(Final, aes(x = Name, y = value, color = variable))+
+  geom_point(aes(y = Pre_Match_Rating, col = "Pre_Match_Rating"))+
+  geom_point(aes(y = Average_Opponent_Rating, col = "Average_Opponent_Rating"))+
+  ggtitle('Player Rating Vs. Opponent Rating')+
+  ylab("Rating")+
+  scale_x_discrete(labels = c(Final$Initial), guide = guide_axis(n.dodge=5))+
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+```
+
+## Using Elo to calculate expected Scores
+
+I used the provided Elo calculation to compute the expected wins for each participant. I displayed the name of the player who most exceeded expectations. 
+Below I provided a simple plot of actual points vs. expected points. 
+
+```{r}
+
+difference <- c(Final$Average_Opponent_Rating - Final$Pre_Match_Rating)
+ratio <- difference/400
+exponent <- 10^ratio
+expected <- round((1/(1 + exponent))*7,2) #Multiplied by expected games played
+Final$Expected_Points <- expected
+actual_minus <- c(as.numeric(Final$Points)) - c(as.numeric(Final$Expected_Points))
+Final$Actual_Minus_Expected <- actual_minus
+upset = as.numeric(which(Final$Actual_Minus_Expected == max(Final$Actual_Minus_Expected)))
+
+Final$Name[upset] #Name of the participant who performed most above expectations
+
+ggplot(Final, aes(x = Name, y = value, color = variable))+
+  geom_point(aes(y = Points, col = "Points"))+
+  geom_point(aes(y = Expected_Points, col = "Expected_Points"))+
+  ggtitle('Actual Points vs. Expected Points')+
+  ylab("Points")+
+  scale_x_discrete(labels = c(Final$Initial), guide = guide_axis(n.dodge=5))+
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
